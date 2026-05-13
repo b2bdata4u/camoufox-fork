@@ -1,0 +1,59 @@
+name: validate
+
+# Validate that our patches still apply cleanly to the pinned upstream
+# commit. Runs on every push + PR. Fast (<3 min) — does NOT compile.
+#
+# Triggers a full red build alert the moment a patches-b2b edit drifts
+# from the upstream source it was generated against, OR when someone
+# bumps UPSTREAM_VERSION without re-porting hunks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate-patches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+
+      - name: Read UPSTREAM_VERSION (PROD line)
+        id: ver
+        run: |
+          # Format: "135.0.1-beta.24-b2b1 (PROD)"  →  "135.0.1-beta.24"
+          ver="$(grep '(PROD)' UPSTREAM_VERSION \
+                   | sed -E 's/-b2b[0-9]+ \(PROD\)//' \
+                   | tr -d ' ')"
+          echo "upstream=$ver" >> "$GITHUB_OUTPUT"
+          echo "Resolved upstream version: $ver"
+
+      - name: Fetch Firefox source tarball
+        run: |
+          ff="${{ steps.ver.outputs.upstream }}"
+          ff_v="${ff%%-*}"
+          wget -q "https://archive.mozilla.org/pub/firefox/releases/${ff_v}/source/firefox-${ff_v}.source.tar.xz" \
+               -O firefox-source.tar.xz
+          mkdir -p ff-src
+          tar -xJf firefox-source.tar.xz -C ff-src --strip-components=1
+
+      - name: Apply all patches-b2b/*.patch (dry-run)
+        run: |
+          set -e
+          cd ff-src
+          for p in ../patches-b2b/*.patch; do
+            echo "Validating: $p"
+            patch -p1 --dry-run < "$p"
+          done
+
+      - name: Apply for real (catches partial-success cases)
+        run: |
+          set -e
+          cd ff-src
+          for p in ../patches-b2b/*.patch; do
+            patch -p1 < "$p"
+          done
+          echo "All patches applied cleanly to upstream ${{ steps.ver.outputs.upstream }}"

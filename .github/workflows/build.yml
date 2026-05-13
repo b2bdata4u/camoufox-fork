@@ -1,0 +1,116 @@
+name: build
+
+# Full Camoufox build with our patches applied. Triggered manually OR by
+# tagging `release/v<upstream>-b2b<n>` (e.g. release/v135.0.1-beta.24-b2b1).
+#
+# Outputs a tar.bz2 attached to a GitHub Release, with SHA256 in the body.
+# Consumer (b2bdata4u/content_scraper_linkedin Dockerfile) pins by URL+SHA256.
+#
+# Time: ~60-120 min on free ubuntu-latest runner. Free tier 2000 min/mo
+# is enough for ~15-30 builds/mo — well within our cadence.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_version:
+        description: "Upstream Camoufox version (e.g. 135.0.1-beta.24). Empty = PROD line from UPSTREAM_VERSION."
+        required: false
+        default: ""
+      b2b_revision:
+        description: "Our patch revision number (the N in -b2bN)."
+        required: true
+        default: "1"
+
+  push:
+    tags:
+      - "release/v*-b2b*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout fork (full history for tag lookup)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # Tag: release/v135.0.1-beta.24-b2b3 → upstream=135.0.1-beta.24, b2b=3
+            ref="${GITHUB_REF#refs/tags/release/v}"
+            upstream="${ref%-b2b*}"
+            b2b="${ref##*-b2b}"
+          elif [ -n "${{ github.event.inputs.upstream_version }}" ]; then
+            upstream="${{ github.event.inputs.upstream_version }}"
+            b2b="${{ github.event.inputs.b2b_revision }}"
+          else
+            upstream="$(grep '(PROD)' UPSTREAM_VERSION \
+                          | sed -E 's/-b2b[0-9]+ \(PROD\)//' \
+                          | tr -d ' ')"
+            b2b="${{ github.event.inputs.b2b_revision }}"
+          fi
+          echo "upstream=$upstream" >> "$GITHUB_OUTPUT"
+          echo "b2b=$b2b"           >> "$GITHUB_OUTPUT"
+          echo "tag=v${upstream}-b2b${b2b}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3 python3-pip p7zip-full golang-go msitools wget aria2 \
+            libsqlite3-dev build-essential
+
+      - name: Clone daijro/camoufox at the pinned tag
+        run: |
+          # Some upstream tags include the leading "v" (v135.0.1-beta.24) and
+          # some don't — try both forms before giving up.
+          ver="${{ steps.ver.outputs.upstream }}"
+          git clone --depth 1 --branch "v${ver}" https://github.com/daijro/camoufox.git upstream-src 2>/dev/null \
+            || git clone --depth 1 --branch "${ver}"  https://github.com/daijro/camoufox.git upstream-src
+
+      - name: Copy patches-b2b into upstream and run build.sh
+        run: |
+          # Stage our overlay inside the upstream checkout so build.sh
+          # finds it. (CAMOUFOX_DIR points at upstream; PATCHES_B2B_DIR at
+          # this repo's patches-b2b/.)
+          export CAMOUFOX_DIR="$PWD/upstream-src"
+          export PATCHES_B2B_DIR="$PWD/patches-b2b"
+          bash build.sh "${{ steps.ver.outputs.upstream }}" linux-x86_64
+
+      - name: Locate built artefact + SHA256
+        id: artefact
+        run: |
+          path="$(find upstream-src -maxdepth 1 -name 'camoufox-*-b2b.linux*.tar.bz2' | head -1)"
+          sha="$(sha256sum "$path" | awk '{print $1}')"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha"   >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.artefact.outputs.path }}
+          body: |
+            **SHA256:** `${{ steps.artefact.outputs.sha }}`
+
+            Built from upstream daijro/camoufox `${{ steps.ver.outputs.upstream }}`
+            + this repo's `patches-b2b/`.
+
+            Consumer (`b2bdata4u/content_scraper_linkedin`) pins via:
+            ```
+            ARG CAMOUFOX_VERSION=${{ steps.ver.outputs.upstream }}-b2b${{ steps.ver.outputs.b2b }}
+            ARG CAMOUFOX_SHA256=${{ steps.artefact.outputs.sha }}
+            ```
+
+      - name: Upload as workflow artefact (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: camoufox-${{ steps.ver.outputs.tag }}-linux-x86_64
+          path: ${{ steps.artefact.outputs.path }}
+          retention-days: 14
