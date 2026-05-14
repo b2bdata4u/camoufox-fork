@@ -40,20 +40,32 @@ jobs:
           mkdir -p ff-src
           tar -xJf firefox-source.tar.xz -C ff-src --strip-components=1
 
-      - name: Apply all patches-b2b/*.patch (dry-run)
+      - name: Apply patches-b2b/*.ffMAJOR.patch matching this upstream (dry-run)
         run: |
           set -e
+          ff="${{ steps.ver.outputs.upstream }}"
+          ff_major="${ff%%.*}"
           cd ff-src
-          for p in ../patches-b2b/*.patch; do
+          shopt -s nullglob
+          matched=0
+          for p in ../patches-b2b/*.ff${ff_major}.patch ../patches-b2b/*.allff.patch; do
             echo "Validating: $p"
             patch -p1 --dry-run < "$p"
+            matched=$((matched + 1))
           done
+          if [ "$matched" -eq 0 ]; then
+            echo "ERROR: no patches matched ff${ff_major} — every patch is no-op for this UPSTREAM_VERSION"
+            exit 1
+          fi
 
       - name: Apply for real (catches partial-success cases)
         run: |
           set -e
+          ff="${{ steps.ver.outputs.upstream }}"
+          ff_major="${ff%%.*}"
           cd ff-src
-          for p in ../patches-b2b/*.patch; do
+          shopt -s nullglob
+          for p in ../patches-b2b/*.ff${ff_major}.patch ../patches-b2b/*.allff.patch; do
             patch -p1 < "$p"
           done
           echo "All patches applied cleanly to upstream ${{ steps.ver.outputs.upstream }}"

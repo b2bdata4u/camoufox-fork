@@ -155,12 +155,24 @@ else
 fi
 
 # 3. Apply patches-b2b on top.
-echo "[build] applying patches-b2b/*.patch ..."
-for p in "$PATCHES_B2B_DIR"/*.patch; do
+# Convention: each patch is named *.ff<MAJOR>.patch targeting one Firefox
+# major version. Only patches matching the upstream we're building get
+# applied. Cross-version patches (rare) can be named without the .ffNN
+# suffix and will always apply — use sparingly.
+FF_MAJOR="${FF_VERSION%%.*}"
+echo "[build] applying patches-b2b/*.ff${FF_MAJOR}.patch (+ unversioned) ..."
+shopt -s nullglob
+matched=0
+for p in "$PATCHES_B2B_DIR"/*.ff${FF_MAJOR}.patch "$PATCHES_B2B_DIR"/*.allff.patch; do
   echo "[build]   $p"
   (cd "$CF_SOURCE_DIR" && patch -p1 --silent < "$p") \
     || { echo "FAILED b2b: $p"; exit 1; }
+  matched=$((matched + 1))
 done
+shopt -u nullglob
+if [ "$matched" -eq 0 ]; then
+  echo "[build] WARNING: no patches matched ff${FF_MAJOR} — every patch is no-op." >&2
+fi
 
 # Prepend every bootstrapped mozbuild tool dir to PATH. mach build with
 # --disable-bootstrap won't auto-find these — they're installed by

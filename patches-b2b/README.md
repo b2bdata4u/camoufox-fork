@@ -1,16 +1,24 @@
 # `patches-b2b/` — our additions to Camoufox
 
-Applied on top of upstream `daijro/camoufox` patches (in alphabetical order, after `patches/*.patch`). Naming convention: `<area>-<purpose>.patch` — keep numeric prefixes out so applying order is content-driven, not ordering-driven.
+Applied on top of upstream `daijro/camoufox` patches (in alphabetical order, after `patches/*.patch`). Naming convention: `<area>-<purpose>.ff<MAJOR>.patch` — the `.ffNN` suffix pins the target Firefox major version. `build.sh` only applies patches matching the upstream's `FF_VERSION` major number, so FF135 builds skip `.ff150.patch` files and vice versa.
+
+Cross-version patches (rare — typically only the small JS layer ones) can be named `<area>-<purpose>.allff.patch` and apply to every build. Use sparingly: most hunks differ at line numbers and surrounding context across FF versions.
 
 ## Patch index
 
 | Patch | Targets | Touches | Adds MaskConfig keys | Data trail |
 |---|---|---|---|---|
-| [`h2-fingerprint-axes.patch`](./h2-fingerprint-axes.patch) | Firefox **135.0.1** (matches prod Camoufox `135.0.1-beta.24`) | `Http2Session.cpp`, `Http2Compression.cpp` | `network.http2.settings.enablePush`, `network.http2.settings.maxFrameSize`, `network.http2.priorities.enabled`, `network.http2.pseudoHeaderOrder` | [`project_h2_fingerprint_collapse_2026_05_12.md`](../../../.claude/memory/project_h2_fingerprint_collapse_2026_05_12.md), probe output 2026-05-13 |
+| [`h2-fingerprint-axes.ff135.patch`](./h2-fingerprint-axes.ff135.patch) | Firefox **135.0.1** (matches prod Camoufox `135.0.1-beta.24`) | `Http2Session.cpp`, `Http2Compression.cpp` | `network.http2.settings.enablePush`, `network.http2.settings.maxFrameSize`, `network.http2.priorities.enabled`, `network.http2.pseudoHeaderOrder` | [`project_h2_fingerprint_collapse_2026_05_12.md`](../../../.claude/memory/project_h2_fingerprint_collapse_2026_05_12.md), probe output 2026-05-13 |
+| [`h2-fingerprint-axes.ff150.patch`](./h2-fingerprint-axes.ff150.patch) | Firefox **150.0.2** (daijro main, FF135 successor) | same | same | same — ported from FF135 by retargeting hunks against the FF150 SendHello layout (ENABLE_PUSH is unconditional in 150, conditional on `network_http_http2_allow_push` pref in 135) |
 
-### Firefox version drift
+### Switching upstream Firefox version
 
-Patches must apply against the Firefox version pinned in the main `Dockerfile`'s `CAMOUFOX_VERSION`. Today: `135.0.1-beta.24` (Firefox 135.0.1). When upstream daijro/camoufox bumps to Firefox 150 we re-port — the FF135 → FF150 hunks differ slightly (ENABLE_PUSH in 135 is gated on `network_http_http2_allow_push`; in 150 it's unconditional). A `firefox-150.0.2-b2b1.patch` variant is staged in `/root/Coding/camoufox/ff-src/firefox-150.0.2-b2b/` on the dev VPS but **not** in this directory yet.
+To bump production from FF135 to FF150:
+1. Move the FF150 line of `UPSTREAM_VERSION` to `(PROD)` and demote the FF135 line.
+2. Run `build.sh` — it auto-checks out the matching daijro tag and applies the `.ff150.patch` variant.
+3. SHA256-pin the new artefact in the consumer's `Dockerfile` + `docker/provisioner/Dockerfile`.
+
+Keep both `.ff135.patch` and `.ff150.patch` until the legacy fleet is fully migrated — rollback to the older Camoufox version is a `Dockerfile` revert away.
 
 ## `h2-fingerprint-axes.patch` — rationale
 

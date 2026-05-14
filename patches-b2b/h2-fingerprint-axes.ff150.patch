@@ -1,0 +1,99 @@
+--- a/netwerk/protocol/http/Http2Session.cpp	2026-05-06 16:24:39.000000000 +0000
++++ b/netwerk/protocol/http/Http2Session.cpp	2026-05-13 20:27:55.042367563 +0000
+@@ -4,6 +4,7 @@
+ 
+ // HttpLog.h should generally be included first
+ #include "HttpLog.h"
++#include "MaskConfig.hpp"
+ #include "nsCOMPtr.h"
+ #include "nsStringFwd.h"
+ 
+@@ -1080,6 +1081,11 @@
+   // We don't support HTTP/2 Push. Set SETTINGS_TYPE_ENABLE_PUSH to 0
+   NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
+                              SETTINGS_TYPE_ENABLE_PUSH);
++  // b2b: per-profile MaskConfig override; default 0 (matches real Firefox).
++  if (auto v = MaskConfig::GetUint32("network.http2.settings.enablePush")) {
++    NetworkEndian::writeUint32(
++        packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2, v.value());
++  }
+   // The value portion of the setting pair is already initialized to 0
+   numberOfEntries++;
+ 
+@@ -1107,13 +1113,24 @@
+   // frame size
+   NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
+                              SETTINGS_TYPE_MAX_FRAME_SIZE);
++  // b2b: per-profile MaskConfig override; default kMaxFrameData (16384).
++  uint32_t maxFrameSizeValue =
++      MaskConfig::GetUint32("network.http2.settings.maxFrameSize")
++          .value_or(kMaxFrameData);
+   NetworkEndian::writeUint32(
+-      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2, kMaxFrameData);
++      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
++      maxFrameSizeValue);
+   numberOfEntries++;
+ 
+   bool disableRFC7540Priorities =
+       !StaticPrefs::network_http_http2_enabled_deps() ||
+       !gHttpHandler->CriticalRequestPrioritization();
++  // b2b: per-profile MaskConfig override. true → emit PRIORITY frames
++  // (RFC7540 deps on), false → no PRIORITY frames. Lets the seed rotate
++  // PRIORITY count between {0, 6} independent of Firefox prefs.
++  if (auto v = MaskConfig::GetBool("network.http2.priorities.enabled")) {
++    disableRFC7540Priorities = !v.value();
++  }
+ 
+   // See bug 1909666. Sending this new setting could break some websites.
+   if (disableRFC7540Priorities &&
+--- a/netwerk/protocol/http/Http2Compression.cpp	2026-05-06 16:24:40.000000000 +0000
++++ b/netwerk/protocol/http/Http2Compression.cpp	2026-05-13 20:28:07.758304205 +0000
+@@ -4,6 +4,7 @@
+ 
+ // HttpLog.h should generally be included first
+ #include "HttpLog.h"
++#include "MaskConfig.hpp"
+ 
+ // Log on level :5, instead of default :4.
+ #undef LOG
+@@ -1051,11 +1052,36 @@
+   }
+ 
+   // colon headers first
++  // b2b: per-profile MaskConfig override for pseudo-header emit order.
++  // Order is a permutation of {m, p, a, s} encoded as a 4-char string.
++  // Default "mpas" matches Firefox 150 canonical order. simpleConnectForm
++  // keeps the 2-header CONNECT shape — only the full 4-header order is
++  // configurable, the CONNECT case is universal across UAs.
+   if (!simpleConnectForm) {
+-    ProcessHeader(nvPair(":method"_ns, method), false, false);
+-    ProcessHeader(nvPair(":path"_ns, path), true, false);
+-    ProcessHeader(nvPair(":authority"_ns, host), false, false);
+-    ProcessHeader(nvPair(":scheme"_ns, scheme), false, false);
++    std::string order =
++        MaskConfig::GetString("network.http2.pseudoHeaderOrder")
++            .value_or(std::string("mpas"));
++    if (order.size() != 4) {
++      order = "mpas";
++    }
++    for (char c : order) {
++      switch (c) {
++        case 'm':
++          ProcessHeader(nvPair(":method"_ns, method), false, false);
++          break;
++        case 'p':
++          ProcessHeader(nvPair(":path"_ns, path), true, false);
++          break;
++        case 'a':
++          ProcessHeader(nvPair(":authority"_ns, host), false, false);
++          break;
++        case 's':
++          ProcessHeader(nvPair(":scheme"_ns, scheme), false, false);
++          break;
++        default:
++          break;
++      }
++    }
+     if (isWebsocket) {
+       ProcessHeader(nvPair(":protocol"_ns, protocol), false, false);
+     }
