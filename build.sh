@@ -162,6 +162,18 @@ for p in "$PATCHES_B2B_DIR"/*.patch; do
     || { echo "FAILED b2b: $p"; exit 1; }
 done
 
+# Disable `--enable-bootstrap` in mozconfig. Camoufox's default mozconfig
+# enables it; mach then tries to fetch the prebuilt clang toolchain from
+# taskcluster, which fails because our source tree is a git-init (not a
+# mozilla-central clone) so mach can't resolve which artefact to fetch.
+# We installed clang locally via mozbootstrap above, so we don't need the
+# auto-bootstrap path. Flip it to --disable-bootstrap.
+if grep -q "^ac_add_options --enable-bootstrap" "$CF_SOURCE_DIR/mozconfig"; then
+  sed -i 's/^ac_add_options --enable-bootstrap$/ac_add_options --disable-bootstrap/' \
+    "$CF_SOURCE_DIR/mozconfig"
+  echo "[build] flipped mozconfig --enable-bootstrap → --disable-bootstrap"
+fi
+
 # 4. Build via Camoufox's `make build` (calls `./mach build` internally).
 echo "[build] make build  (30-90 min) ..."
 MACH_ARGS=""
