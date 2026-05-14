@@ -67,7 +67,52 @@ echo "===================================================="
 
 cd "$CAMOUFOX_DIR"
 
-# Sync Camoufox's version pin to what we asked for.
+# Daijro's main branch tracks the latest Firefox release; targeting an older
+# version means we MUST check out the matching tag, otherwise patches/*.patch
+# is for the wrong Firefox source and ~25 patches reject. Tag format on daijro
+# is `v<upstream-version>` (e.g. v135.0.1-beta.24).
+DAIJRO_TAG="v${UPSTREAM_VERSION}"
+if git rev-parse --verify --quiet "$DAIJRO_TAG" >/dev/null; then
+  current="$(git rev-parse HEAD)"
+  target="$(git rev-parse "$DAIJRO_TAG")"
+  if [ "$current" != "$target" ]; then
+    echo "[build] checking out daijro tag $DAIJRO_TAG ..."
+    # Stash any uncommitted change to upstream.sh (we rewrite it next anyway).
+    git stash --quiet 2>/dev/null || true
+    git checkout --quiet "$DAIJRO_TAG"
+  fi
+else
+  echo "[build] WARNING: daijro tag $DAIJRO_TAG not found in current checkout." >&2
+  echo "[build] If this is a shallow clone, run: git fetch --unshallow origin" >&2
+  echo "[build] Proceeding with current HEAD — patches may not apply if HEAD targets a different Firefox version." >&2
+fi
+
+# Sanity-check rust toolchain — Camoufox's scripts/patch.py calls
+# `~/.cargo/bin/rustup target add ...` for cross-compile targets.
+# Camoufox does NOT bootstrap rust itself; we have to.
+if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+  echo "[build] WARNING: ~/.cargo/bin/rustup missing." >&2
+  if command -v rustup >/dev/null; then
+    echo "[build] linking $(command -v rustup) into ~/.cargo/bin/" >&2
+    mkdir -p "$HOME/.cargo/bin"
+    ln -sf "$(command -v rustup)" "$HOME/.cargo/bin/rustup"
+    [ -x "$(command -v cargo)" ] && ln -sf "$(command -v cargo)" "$HOME/.cargo/bin/cargo"
+    [ -x "$(command -v rustc)" ] && ln -sf "$(command -v rustc)" "$HOME/.cargo/bin/rustc"
+  else
+    echo "[build] install rust first: apt install rustup && rustup default stable" >&2
+    exit 1
+  fi
+fi
+# `make dir` calls patch.py which adds cross-targets; pre-add to avoid the
+# build needing network mid-compile.
+if rustup show 2>&1 | grep -q "no default toolchain"; then
+  echo "[build] no default rust toolchain — setting stable" >&2
+  rustup default stable
+fi
+rustup target add aarch64-unknown-linux-gnu i686-unknown-linux-gnu 2>&1 | tail -3 || true
+
+# Sync Camoufox's version pin to what we asked for. The tag checkout above
+# also wrote this file, but we may be on a non-tag commit so be explicit.
 cat > upstream.sh <<EOF
 version=$FF_VERSION
 release=$RELEASE
