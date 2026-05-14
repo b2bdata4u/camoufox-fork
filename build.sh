@@ -138,6 +138,22 @@ fi
 echo "[build] make dir (extract + apply upstream patches/*.patch) ..."
 make dir BUILD_TARGET="$MAKE_BUILD_TARGET"
 
+# Mozilla bootstrap — installs apt build deps + downloads the prebuilt clang
+# toolchain into ~/.mozbuild. Without this, `mach build` fails at
+# `mach artifact toolchain --from-build toolchain-linux64-clang` because the
+# source tree is a git init (not a mozilla-central clone) and mach can't
+# resolve the right toolchain artefact from taskcluster.
+# Skip if ~/.mozbuild/clang exists (bootstrap already ran on a prior build).
+if [ ! -d "$HOME/.mozbuild/clang" ]; then
+  echo "[build] mozbootstrap (one-time apt + toolchain download, ~15-30 min) ..."
+  if [ ! -f /tmp/bootstrap.py ] || [ $(($(date +%s) - $(stat -c %Y /tmp/bootstrap.py 2>/dev/null || echo 0))) -gt 86400 ]; then
+    wget -q https://hg.mozilla.org/mozilla-central/raw-file/default/python/mozboot/bin/bootstrap.py -O /tmp/bootstrap.py
+  fi
+  python3 /tmp/bootstrap.py --no-interactive --application-choice=browser
+else
+  echo "[build] ~/.mozbuild/clang exists — skipping mozbootstrap"
+fi
+
 # 3. Apply patches-b2b on top.
 echo "[build] applying patches-b2b/*.patch ..."
 for p in "$PATCHES_B2B_DIR"/*.patch; do
