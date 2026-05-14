@@ -45,7 +45,11 @@ if [ -z "$UPSTREAM_VERSION" ]; then
                        | sed -E 's/-b2b[0-9]+ \(PROD\)//' \
                        | tr -d ' ')"
 fi
+# BUILD_TARGET is the user-facing label (used in artefact filename + log).
+# Camoufox's scripts/patch.py expects MAKE_BUILD_TARGET in "os,arch" form
+# (e.g. "linux,x86_64"); we derive it from BUILD_TARGET below.
 BUILD_TARGET="${2:-linux-x86_64}"
+MAKE_BUILD_TARGET="${BUILD_TARGET//-/,}"
 MACH_JOBS="${MACH_JOBS:-2}"
 
 FF_VERSION="${UPSTREAM_VERSION%%-*}"
@@ -87,7 +91,7 @@ fi
 # `make dir` runs `make setup` (extract + git-init) then
 # `python3 scripts/patch.py $version $release` (apply all upstream patches).
 echo "[build] make dir (extract + apply upstream patches/*.patch) ..."
-make dir BUILD_TARGET="$BUILD_TARGET"
+make dir BUILD_TARGET="$MAKE_BUILD_TARGET"
 
 # 3. Apply patches-b2b on top.
 echo "[build] applying patches-b2b/*.patch ..."
