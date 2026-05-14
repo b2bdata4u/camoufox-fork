@@ -183,6 +183,18 @@ if grep -q "^ac_add_options --enable-bootstrap" "$CF_SOURCE_DIR/mozconfig"; then
   echo "[build] flipped mozconfig --enable-bootstrap → --disable-bootstrap"
 fi
 
+# Disable WASM-sandboxed libraries. With --disable-bootstrap mach can't
+# find the wasi-sysroot/wasi-clang toolchain even though mozbootstrap
+# installed it at ~/.mozbuild/sysroot-wasm32-wasi. Disabling the feature
+# is fine for our purposes — we're not shipping production-hardened
+# Firefox.
+if ! grep -q "^ac_add_options --without-wasm-sandboxed-libraries" "$CF_SOURCE_DIR/mozconfig"; then
+  # Ensure a trailing newline before append so we don't concat lines.
+  tail -c1 "$CF_SOURCE_DIR/mozconfig" | read -r _ || echo "" >> "$CF_SOURCE_DIR/mozconfig"
+  echo "ac_add_options --without-wasm-sandboxed-libraries" >> "$CF_SOURCE_DIR/mozconfig"
+  echo "[build] added mozconfig --without-wasm-sandboxed-libraries"
+fi
+
 # 4. Build via Camoufox's `make build` (calls `./mach build` internally).
 echo "[build] make build  (30-90 min) ..."
 MACH_ARGS=""
