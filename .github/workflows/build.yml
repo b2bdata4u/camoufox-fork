@@ -63,7 +63,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             python3 python3-pip p7zip-full golang-go msitools wget aria2 \
-            libsqlite3-dev build-essential
+            libsqlite3-dev build-essential \
+            rustup \
+            libasound2-dev libpulse-dev libdbus-1-dev libdbus-glib-1-dev \
+            libxt-dev libxtst-dev libgtk-3-dev libdrm-dev libpci-dev \
+            libcurl4-openssl-dev libx11-xcb-dev libxcomposite-dev \
+            libxcursor-dev libxdamage-dev libxfixes-dev libxi-dev \
+            libxrandr-dev libxss-dev libxext-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev libnotify-dev libffi-dev \
+            mesa-common-dev yasm nasm m4 unzip uuid pkg-config
+          # Mozilla bootstrap.py installs ~/.mozbuild/{clang,cbindgen,nasm,node,...}
+          # which build.sh prepends to PATH. We DO run it here because build.sh
+          # does too — it's idempotent and only re-fetches if the toolchains
+          # are missing.
+          rustup default stable
+          rustup target add aarch64-unknown-linux-gnu i686-unknown-linux-gnu
 
       - name: Clone daijro/camoufox at the pinned tag
         run: |
