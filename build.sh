@@ -162,6 +162,13 @@ for p in "$PATCHES_B2B_DIR"/*.patch; do
     || { echo "FAILED b2b: $p"; exit 1; }
 done
 
+# Prepend the bootstrapped clang dir to PATH. mach build with
+# --disable-bootstrap won't auto-find llvm-objdump / llvm-readelf / etc
+# in ~/.mozbuild/clang/bin — it expects them on PATH.
+if [ -d "$HOME/.mozbuild/clang/bin" ]; then
+  export PATH="$HOME/.mozbuild/clang/bin:$PATH"
+fi
+
 # Disable `--enable-bootstrap` in mozconfig. Camoufox's default mozconfig
 # enables it; mach then tries to fetch the prebuilt clang toolchain from
 # taskcluster, which fails because our source tree is a git-init (not a
